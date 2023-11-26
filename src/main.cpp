@@ -1,8 +1,16 @@
-#include "HardwareSerial.h"
-#include "freertos/queue.h"
+#include <HardwareSerial.h>
+#include <freertos/queue.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/timers.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <WiFiClientSecure.h>
 
 QueueHandle_t queue;
 TaskHandle_t task;
+TimerHandle_t MyTimer;
 
 #define SIZE(temp) sizeof(temp) / sizeof(uint8_t)
 #define UART_BUF_LEN 80
@@ -11,6 +19,44 @@ TaskHandle_t task;
 
 void UnpackData(void);
 uint16_t crc16(uint8_t *data, uint8_t len, uint16_t *table);
+void MyTimerCallback(TimerHandle_t xTimer);
+void GenerateMsg(const char *fmt, uint32_t data, const char *codename);
+void PrintandUpdateMsg(char target[], char msg[]);
+void UpdateMsg();
+
+// WiFi
+const char *ssid = "Wired";
+const char *password = "1234567890";
+
+// MQTT Broker
+const char *mqtt_broker = "r1b5f2f3.ala.cn-hangzhou.emqxsl.cn"; // broker address
+const char *topic = "Crazy";                                    // define topic
+const char *mqtt_username = "crazy";                            // username for authentication
+const char *mqtt_password = "crazy";                            // password for authentication
+const int mqtt_port = 8883;                                     // port of MQTT over TLS/SSL
+const char *fingerprint = "7E:52:D3:84:48:3C:5A:9F:A4:39:9A:8B:27:01:B1:F8:C6:AD:D4:47";
+
+const static char NTP_Server[][16] = {
+    "17.253.84.253",
+    "202.38.64.7",
+    "17.253.116.253",
+    "101.6.6.172",
+    "17.253.84.123",
+    "ntp1.aliyun.com",
+    "ntp.tencent.com"};
+
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, NTP_Server[0], 8 * 3600);
+
+#define MSG_BUFFER_SIZE (50)
+#define BOARD_NAME "ESP32C3"
+
+unsigned long lastMsg = 0, boot = 0;
+char msg[MSG_BUFFER_SIZE];
+char target[MSG_BUFFER_SIZE];
+uint8_t NTP_Count = 0, WiFi_Count = 0;
 
 const uint16_t table[256] = {0x0, 0xa001, 0xe003, 0x4002, 0x6007, 0xc006, 0x8004, 0x2005, 0xc00e, 0x600f, 0x200d, 0x800c, 0xa009, 0x8, 0x400a, 0xe00b, 0x201d, 0x801c, 0xc01e, 0x601f,
                              0x401a, 0xe01b, 0xa019, 0x18, 0xe013, 0x4012, 0x10, 0xa011, 0x8014, 0x2015, 0x6017, 0xc016, 0x403a, 0xe03b, 0xa039, 0x38, 0x203d, 0x803c, 0xc03e, 0x603f,
@@ -165,6 +211,7 @@ void UART1_receiveTask(void *parameter)
             {
               uart_rcv_buf[uart_rcv_count++] = temp;
               Serial.printf("S0:Recv %d bytes ok!\r\n", uart_rcv_count);
+              uart_rcv_flag = 1;
               UnpackData();
             }
             else
@@ -181,7 +228,7 @@ void UART1_receiveTask(void *parameter)
   }
 }
 
-void UnpackData(void)
+void UnpackData+(void)
 {
   memcpy(&uart_data, uart_rcv_buf, uart_rcv_count);
   if (uart_data.head != HEAD || uart_data.tail != TAIL)
@@ -205,15 +252,125 @@ void UnpackData(void)
   }
 }
 
+void setup_wifi()
+{
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.print(ssid);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    if (WiFi_Count > 15)
+      ESP.deepSleep(300e6);
+    delay(500);
+    Serial.print(".");
+    WiFi_Count++;
+  }
+
+  randomSeed(micros());
+
+  Serial.print("WiFi connected, IP address: ");
+  Serial.println(WiFi.localIP());
+  IPAddress serverIP;
+  const char *alidns_host = "dns.alidns.com";
+  ip_addr_t alidns;
+  WiFi.hostByName(alidns_host, serverIP);
+  if (serverIP)
+  {
+    Serial.print("default DNS from DHCP test ok =>");
+    Serial.println(serverIP);
+  }
+  else
+  {
+    IP_ADDR4(&alidns, 223, 6, 6, 6);
+    dhcps_dns_setserver(&alidns);
+    Serial.println("default DNS fault, switching to alidns.");
+    WiFi.hostByName("dns.alidns.com", serverIP);
+    Serial.println(serverIP);
+  }
+}
+
+void reconnect()
+{
+  while (!client.connected())
+  {
+    String client_id = "esp8266-client-";
+    client_id += String(WiFi.macAddress());
+    Serial.printf("The client %s connects to the mqtt broker\n", client_id.c_str());
+    if (client.connect(client_id.c_str(), mqtt_username, mqtt_password))
+    {
+      Serial.println("Connected to MQTT broker.");
+    }
+    else
+    {
+      Serial.print("Failed to connect to MQTT broker, rc=");
+      Serial.print(client.state());
+      Serial.println(" Retrying in 5 seconds.");
+      delay(5000);
+    }
+  }
+}
+
+void UART1SendCMD(void)
+{
+  Serial.println("Sent UpdateinfoCMD to UART1!");
+  Serial1.write(UpdateinfoCMD, sizeof(UpdateinfoCMD));
+}
+
 void setup()
 {
+  Serial.begin(115200);
+  Serial.println("S0:BOOT");
+
   queue = xQueueCreate(10, sizeof(char));
   xTaskCreate(UART1_receiveTask, "receiveTask", 1024, NULL, 1, NULL);
 
-  Serial.begin(115200);
   Serial1.begin(9600, SERIAL_8N1, 2, 3);
-  Serial.println("S0:BOOT");
-  Serial1.write(UpdateinfoCMD, sizeof(UpdateinfoCMD));
+
+  Serial.println(F("Intializing ..."));
+  setup_wifi();
+  // espClient.setFingerprint(fingerprint);
+  client.setServer(mqtt_broker, mqtt_port);
+  timeClient.begin();
+  timeClient.update();
+  do
+  {
+    if (NTP_Count > sizeof(NTP_Server))
+    {
+      NTP_Count = 0;
+      ESP.deepSleep(60e6);
+    }
+    Serial.print("Updating time @ " + String(NTP_Server[NTP_Count]) + "=>");
+    timeClient.setPoolServerName(NTP_Server[NTP_Count]);
+    timeClient.update();
+    boot = timeClient.getEpochTime();
+    Serial.println(timeClient.getFormattedTime());
+    NTP_Count++;
+    delay(500);
+  } while (boot < 1000000000);
+
+  MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(60000), pdTRUE, 0, MyTimerCallback);
+  if (MyTimer == NULL)
+  {
+    Serial.println("MyTimer create failed.");
+  }
+  else
+  {
+    if (xTimerStart(MyTimer, 0) != pdPASS)
+    {
+      Serial.println("MyTimer start failed.");
+    }
+    else
+    {
+      Serial.println("MyTimer started!");
+    }
+  }
+  UpdateMsg();
 }
 
 void loop()
@@ -223,4 +380,41 @@ void loop()
     char ch = Serial1.read();
     xQueueSend(queue, &ch, portMAX_DELAY);
   }
+}
+
+void MyTimerCallback(TimerHandle_t xTimer)
+{
+  Serial.println("MyTimer callback:");
+  UpdateMsg();
+}
+
+void UpdateMsg()
+{
+  UART1SendCMD();
+  while(uart_rcv_flag != 1) vTaskDelay(5);
+  digitalWrite(LED_BUILTIN, HIGH);
+  GenerateMsg("%d", ESP.getFreeHeap(), "freeram");
+  GenerateMsg("%lu", boot, "Boot");
+  GenerateMsg("%d", WiFi_Count, "WiFi");
+  GenerateMsg("%d", NTP_Count, "NTP");
+  GenerateMsg("%d", WiFi.RSSI(), "RSSI");
+
+  snprintf(msg, MSG_BUFFER_SIZE, "%.3f", uart_data.voltage.avg);
+  snprintf(target, MSG_BUFFER_SIZE, "Crazy/ESP32C3/%s", "Voltage");
+  PrintandUpdateMsg(target, msg);
+  uart_rcv_flag = 0;
+  digitalWrite(LED_BUILTIN, LOW);
+}
+
+void GenerateMsg(const char *fmt, uint32_t data, const char *codename)
+{
+  snprintf(msg, MSG_BUFFER_SIZE, fmt, data);
+  snprintf(target, MSG_BUFFER_SIZE, "Crazy/%s/%s", codename, BOARD_NAME);
+  PrintandUpdateMsg(target, msg);
+}
+
+void PrintandUpdateMsg(char target[], char msg[])
+{
+  Serial.println("Publish " + String(target) + " " + String(msg));
+  client.publish(target, msg);
 }
