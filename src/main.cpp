@@ -4,9 +4,14 @@
 QueueHandle_t queue;
 TaskHandle_t task;
 
+#define SIZE(temp) sizeof(temp) / sizeof(uint8_t)
 #define UART_BUF_LEN 80
 #define HEAD 0x55
 #define TAIL 0xAA
+
+void UnpackData(void);
+
+#pragma pack(1)
 
 typedef enum cmd_type_enum
 {
@@ -38,6 +43,7 @@ typedef struct uart_data_struct
 {
   uint8_t head;
   uint8_t data_len;
+  uint8_t cmd_type;
   sensor_data_struct voltage;
   sensor_data_struct current;
   sensor_data_struct power;
@@ -49,19 +55,12 @@ typedef struct uart_data_struct
   uint8_t tail;
 } uart_data_struct;
 
-typedef struct uart_cmd_struct
-{
-  uint8_t head;
-  uint8_t data_len;
-  uint8_t cmd;
-  uint8_t tail;
-} uart_cmd_struct;
+#pragma pack()
 
 char UpdateinfoCMD[] = {0x55, 0x04, 0xBB, 0xAA};
 uart_rcv_state_enum uart_state = RCV_HEAD;
 cmd_type_enum uart_cmd_type;
 uint8_t uart_rcv_buf[UART_BUF_LEN] = {0};
-uart_cmd_struct uart_recv_cmd = {0};
 uart_data_struct uart_data = {0};
 uint8_t uart_rcv_count = 0;
 uint8_t uart_rcv_len = 0;
@@ -140,8 +139,8 @@ void UART1_receiveTask(void *parameter)
             if (temp == TAIL)
             {
               uart_rcv_buf[uart_rcv_count++] = temp;
-              // 触发UART工作线程干活
-              Serial.println("S0:Recv ok!");
+              Serial.printf("S0:Recv %d bytes ok!\r\n", uart_rcv_count);
+              UnpackData();
             }
             else
             {
@@ -154,6 +153,22 @@ void UART1_receiveTask(void *parameter)
         }
       }
     }
+  }
+}
+
+void UnpackData(void)
+{
+  memcpy(&uart_data, uart_rcv_buf, uart_rcv_count);
+  if (uart_data.head != HEAD || uart_data.tail != TAIL)
+  {
+    Serial.println("unpack failed!");
+    memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
+    uart_rcv_count = 0;
+    uart_rcv_len = 0;
+  }
+  else
+  {
+    Serial.println("unpack ok!");
   }
 }
 
