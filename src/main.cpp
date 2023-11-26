@@ -26,6 +26,7 @@ void GenerateMsg(const char *fmt, uint32_t data, const char *codename);
 void PrintandUpdateMsg(char target[], char msg[]);
 void UpdateMsg();
 void UART1SendCMD(void);
+void UartRecvErrcb(void);
 
 // WiFi
 const char *ssid = "Wired";
@@ -180,9 +181,7 @@ void UnpackData(void)
   if (uart_data.head != HEAD || uart_data.tail != TAIL)
   {
     Serial.println("unpack failed!");
-    memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
-    uart_rcv_count = 0;
-    uart_rcv_len = 0;
+    UartRecvErrcb();
   }
   else
   {
@@ -190,12 +189,16 @@ void UnpackData(void)
     if (crc_temp == uart_data.crc)
     {
       Serial.println("unpack ok, crc check ok!");
+      memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
+      uart_state = RCV_HEAD;
+      uart_rcv_count = 0;
+      uart_rcv_len = 0;
       uart_rcv_flag = 1;
     }
     else
     {
       Serial.println("unpack ok, crc check failed.");
-      UART1SendCMD();
+      UartRecvErrcb();
     }
   }
 }
@@ -247,7 +250,7 @@ void reconnect()
 {
   while (!client.connected())
   {
-    String client_id = "esp8266-client-";
+    String client_id = "ESP32C3-client-";
     client_id += String(WiFi.macAddress());
     Serial.printf("The client %s connects to the mqtt broker\n", client_id.c_str());
     if (client.connect(client_id.c_str(), mqtt_username, mqtt_password))
@@ -277,7 +280,7 @@ void setup()
 
   queue = xQueueCreate(10, sizeof(char));
   xSemaphore = xSemaphoreCreateBinary();
-  //xTaskCreate(UART1_receiveTask, "receiveTask", 1024, NULL, 1, NULL);
+  // xTaskCreate(UART1_receiveTask, "receiveTask", 1024, NULL, 1, NULL);
 
   Serial1.begin(9600, SERIAL_8N1, 2, 3);
 
@@ -303,7 +306,7 @@ void setup()
     delay(500);
   } while (boot < 1000000000);
 
-  MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(10), pdTRUE, 0, MyTimerCallback);
+  MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(1), pdTRUE, 0, MyTimerCallback);
   if (MyTimer == NULL)
   {
     Serial.println("MyTimer create failed.");
@@ -318,6 +321,10 @@ void setup()
     {
       Serial.println("MyTimer started!");
     }
+  }
+  if (!client.connected())
+  {
+    reconnect();
   }
 }
 
@@ -349,9 +356,7 @@ void loop()
       {
         Serial.println("err @ RCV_LEN");
         // memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
-        uart_state = RCV_HEAD;
-        uart_rcv_count = 0;
-        uart_rcv_len = 0;
+        UartRecvErrcb();
       }
     }
     else if (uart_state == RCV_CMD)
@@ -369,9 +374,7 @@ void loop()
       {
         Serial.println("RCV_CMD failed!");
         /* 非法指令,复位并重新接收 */
-        uart_state = RCV_HEAD;
-        uart_rcv_count = 0;
-        uart_rcv_len = 0;
+        UartRecvErrcb();
       }
     }
     else if (uart_state == RCV_DATA)
@@ -392,20 +395,28 @@ void loop()
           if (temp == TAIL)
           {
             uart_rcv_buf[uart_rcv_count++] = temp;
-            Serial.printf("S0:Recv %d bytes ok!\r\n", uart_rcv_count);
+            Serial.printf("S1:Recv %d bytes ok!\r\n", uart_rcv_count);
             UnpackData();
           }
           else
           {
             Serial.println("RCV_DATA failed!");
-            uart_state = RCV_HEAD;
-            uart_rcv_count = 0;
-            uart_rcv_len = 0;
+            UartRecvErrcb();
           }
         }
       }
     }
   }
+}
+
+void UartRecvErrcb(void)
+{
+  memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
+  uart_state = RCV_HEAD;
+  uart_rcv_count = 0;
+  uart_rcv_len = 0;
+  Serial.println("failed on recv, request new:");
+  UART1SendCMD();
 }
 
 void MyTimerCallback(TimerHandle_t xTimer)
@@ -424,7 +435,7 @@ void UpdateMsg()
   do
   {
     Serial.println("wait recv done... ");
-    vTaskDelay(100);
+    vTaskDelay(500);
   } while (!uart_rcv_flag);
   GenerateMsg("%d", ESP.getFreeHeap(), "freeram");
   GenerateMsg("%lu", boot, "Boot");
