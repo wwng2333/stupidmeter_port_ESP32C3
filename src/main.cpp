@@ -2,6 +2,7 @@
 #include <freertos/queue.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/timers.h>
+#include <freertos/semphr.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <NTPClient.h>
@@ -11,6 +12,7 @@
 QueueHandle_t queue;
 TaskHandle_t task;
 TimerHandle_t MyTimer;
+SemaphoreHandle_t xSemaphore = NULL;
 
 #define SIZE(temp) sizeof(temp) / sizeof(uint8_t)
 #define UART_BUF_LEN 80
@@ -23,6 +25,7 @@ void MyTimerCallback(TimerHandle_t xTimer);
 void GenerateMsg(const char *fmt, uint32_t data, const char *codename);
 void PrintandUpdateMsg(char target[], char msg[]);
 void UpdateMsg();
+void UART1SendCMD(void);
 
 // WiFi
 const char *ssid = "Wired";
@@ -57,6 +60,31 @@ unsigned long lastMsg = 0, boot = 0;
 char msg[MSG_BUFFER_SIZE];
 char target[MSG_BUFFER_SIZE];
 uint8_t NTP_Count = 0, WiFi_Count = 0;
+
+// load DigiCert Global Root CA ca_cert
+const char *ca_cert =
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\n"
+    "MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\n"
+    "d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD\n"
+    "QTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVT\n"
+    "MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\n"
+    "b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG\n"
+    "9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsB\n"
+    "CSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97\n"
+    "nh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt\n"
+    "43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7P\n"
+    "T19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4\n"
+    "gdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAO\n"
+    "BgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbR\n"
+    "TLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUw\n"
+    "DQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/Esr\n"
+    "hMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg\n"
+    "06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJF\n"
+    "PnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0ls\n"
+    "YSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk\n"
+    "CAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4="
+    "-----END CERTIFICATE-----\n";
 
 const uint16_t table[256] = {0x0, 0xa001, 0xe003, 0x4002, 0x6007, 0xc006, 0x8004, 0x2005, 0xc00e, 0x600f, 0x200d, 0x800c, 0xa009, 0x8, 0x400a, 0xe00b, 0x201d, 0x801c, 0xc01e, 0x601f,
                              0x401a, 0xe01b, 0xa019, 0x18, 0xe013, 0x4012, 0x10, 0xa011, 0x8014, 0x2015, 0x6017, 0xc016, 0x403a, 0xe03b, 0xa039, 0x38, 0x203d, 0x803c, 0xc03e, 0x603f,
@@ -142,93 +170,11 @@ void UART1_receiveTask(void *parameter)
   char c;
   while (1)
   {
-    if (xQueueReceive(queue, &c, portMAX_DELAY))
-    {
-      uint8_t temp = c;
-      if (uart_state == RCV_HEAD && temp == HEAD && uart_rcv_count == 0)
-      {
-        Serial.println("RCV_HEAD");
-        uart_rcv_buf[uart_rcv_count] = temp;
-        uart_state = RCV_LEN;
-        uart_rcv_count++;
-      }
-      else if (uart_state == RCV_LEN)
-      {
-        Serial.println("RCV_LEN");
-        /* 确认接收长度是否小于接收缓冲区,如果否重置接收流程 */
-        if (temp <= UART_BUF_LEN)
-        {
-          uart_rcv_buf[uart_rcv_count] = temp;
-          uart_rcv_len = temp - 2;
-          uart_state = RCV_CMD;
-          uart_rcv_count++;
-        }
-        else
-        {
-          Serial.println("err @ RCV_LEN");
-          // memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
-          uart_state = RCV_HEAD;
-          uart_rcv_count = 0;
-          uart_rcv_len = 0;
-        }
-      }
-      else if (uart_state == RCV_CMD)
-      {
-        if (GET_DATA_ACK == temp) // 判断发来的数据包类型
-        {
-          Serial.println("RCV_CMD ok");
-          uart_rcv_buf[uart_rcv_count] = temp;
-          uart_rcv_len--;
-          uart_cmd_type = (cmd_type_enum)(temp);
-          uart_state = RCV_DATA;
-          uart_rcv_count++;
-        }
-        else
-        {
-          Serial.println("RCV_CMD failed!");
-          /* 非法指令,复位并重新接收 */
-          uart_state = RCV_HEAD;
-          uart_rcv_count = 0;
-          uart_rcv_len = 0;
-        }
-      }
-      else if (uart_state == RCV_DATA)
-      {
-        /* 没到最后一个数据,继续接收 */
-        if (uart_rcv_len != 1)
-        {
-          uart_rcv_len--;
-          uart_rcv_buf[uart_rcv_count++] = temp;
-        }
-        /* 准备接收最后一个数据 */
-        else
-        {
-          /* 确认是否为最后一个数据 */
-          if (uart_rcv_len == 1)
-          {
-            /* 确认最后一个数据是否为帧尾 */
-            if (temp == TAIL)
-            {
-              uart_rcv_buf[uart_rcv_count++] = temp;
-              Serial.printf("S0:Recv %d bytes ok!\r\n", uart_rcv_count);
-              uart_rcv_flag = 1;
-              UnpackData();
-            }
-            else
-            {
-              Serial.println("RCV_DATA failed!");
-              uart_state = RCV_HEAD;
-              uart_rcv_count = 0;
-              uart_rcv_len = 0;
-            }
-          }
-        }
-      }
-    }
+    // xTaskResumeAll();
   }
 }
 
-void UnpackData+(void)
+void UnpackData(void)
 {
   memcpy(&uart_data, uart_rcv_buf, uart_rcv_count);
   if (uart_data.head != HEAD || uart_data.tail != TAIL)
@@ -244,10 +190,12 @@ void UnpackData+(void)
     if (crc_temp == uart_data.crc)
     {
       Serial.println("unpack ok, crc check ok!");
+      uart_rcv_flag = 1;
     }
     else
     {
       Serial.println("unpack ok, crc check failed.");
+      UART1SendCMD();
     }
   }
 }
@@ -328,13 +276,14 @@ void setup()
   Serial.println("S0:BOOT");
 
   queue = xQueueCreate(10, sizeof(char));
-  xTaskCreate(UART1_receiveTask, "receiveTask", 1024, NULL, 1, NULL);
+  xSemaphore = xSemaphoreCreateBinary();
+  //xTaskCreate(UART1_receiveTask, "receiveTask", 1024, NULL, 1, NULL);
 
   Serial1.begin(9600, SERIAL_8N1, 2, 3);
 
   Serial.println(F("Intializing ..."));
   setup_wifi();
-  // espClient.setFingerprint(fingerprint);
+  espClient.setCACert(ca_cert);
   client.setServer(mqtt_broker, mqtt_port);
   timeClient.begin();
   timeClient.update();
@@ -354,7 +303,7 @@ void setup()
     delay(500);
   } while (boot < 1000000000);
 
-  MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(60000), pdTRUE, 0, MyTimerCallback);
+  MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(10), pdTRUE, 0, MyTimerCallback);
   if (MyTimer == NULL)
   {
     Serial.println("MyTimer create failed.");
@@ -370,7 +319,6 @@ void setup()
       Serial.println("MyTimer started!");
     }
   }
-  UpdateMsg();
 }
 
 void loop()
@@ -378,27 +326,111 @@ void loop()
   if (Serial1.available())
   {
     char ch = Serial1.read();
-    xQueueSend(queue, &ch, portMAX_DELAY);
+    uint8_t temp = ch;
+    if (uart_state == RCV_HEAD && temp == HEAD && uart_rcv_count == 0)
+    {
+      Serial.print("RCV_HEAD...");
+      uart_rcv_buf[uart_rcv_count] = temp;
+      uart_state = RCV_LEN;
+      uart_rcv_count++;
+    }
+    else if (uart_state == RCV_LEN)
+    {
+      Serial.print("RCV_LEN...");
+      /* 确认接收长度是否小于接收缓冲区,如果否重置接收流程 */
+      if (temp <= UART_BUF_LEN)
+      {
+        uart_rcv_buf[uart_rcv_count] = temp;
+        uart_rcv_len = temp - 2;
+        uart_state = RCV_CMD;
+        uart_rcv_count++;
+      }
+      else
+      {
+        Serial.println("err @ RCV_LEN");
+        // memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
+        uart_state = RCV_HEAD;
+        uart_rcv_count = 0;
+        uart_rcv_len = 0;
+      }
+    }
+    else if (uart_state == RCV_CMD)
+    {
+      if (GET_DATA_ACK == temp) // 判断发来的数据包类型
+      {
+        Serial.println("RCV_CMD ok");
+        uart_rcv_buf[uart_rcv_count] = temp;
+        uart_rcv_len--;
+        uart_cmd_type = (cmd_type_enum)temp;
+        uart_state = RCV_DATA;
+        uart_rcv_count++;
+      }
+      else
+      {
+        Serial.println("RCV_CMD failed!");
+        /* 非法指令,复位并重新接收 */
+        uart_state = RCV_HEAD;
+        uart_rcv_count = 0;
+        uart_rcv_len = 0;
+      }
+    }
+    else if (uart_state == RCV_DATA)
+    {
+      /* 没到最后一个数据,继续接收 */
+      if (uart_rcv_len != 1)
+      {
+        uart_rcv_len--;
+        uart_rcv_buf[uart_rcv_count++] = temp;
+      }
+      /* 准备接收最后一个数据 */
+      else
+      {
+        /* 确认是否为最后一个数据 */
+        if (uart_rcv_len == 1)
+        {
+          /* 确认最后一个数据是否为帧尾 */
+          if (temp == TAIL)
+          {
+            uart_rcv_buf[uart_rcv_count++] = temp;
+            Serial.printf("S0:Recv %d bytes ok!\r\n", uart_rcv_count);
+            UnpackData();
+          }
+          else
+          {
+            Serial.println("RCV_DATA failed!");
+            uart_state = RCV_HEAD;
+            uart_rcv_count = 0;
+            uart_rcv_len = 0;
+          }
+        }
+      }
+    }
   }
 }
 
 void MyTimerCallback(TimerHandle_t xTimer)
 {
+  const TickType_t xNewPeriod = pdMS_TO_TICKS(60000);
+  xTimerChangePeriod(xTimer, xNewPeriod, 0);
   Serial.println("MyTimer callback:");
   UpdateMsg();
 }
 
 void UpdateMsg()
 {
-  UART1SendCMD();
-  while(uart_rcv_flag != 1) vTaskDelay(5);
+  Serial.println("Update msg:");
   digitalWrite(LED_BUILTIN, HIGH);
+  UART1SendCMD();
+  do
+  {
+    Serial.println("wait recv done... ");
+    vTaskDelay(100);
+  } while (!uart_rcv_flag);
   GenerateMsg("%d", ESP.getFreeHeap(), "freeram");
   GenerateMsg("%lu", boot, "Boot");
   GenerateMsg("%d", WiFi_Count, "WiFi");
   GenerateMsg("%d", NTP_Count, "NTP");
   GenerateMsg("%d", WiFi.RSSI(), "RSSI");
-
   snprintf(msg, MSG_BUFFER_SIZE, "%.3f", uart_data.voltage.avg);
   snprintf(target, MSG_BUFFER_SIZE, "Crazy/ESP32C3/%s", "Voltage");
   PrintandUpdateMsg(target, msg);
