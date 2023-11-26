@@ -52,8 +52,8 @@ void app_main(void *parameter)
     {
       reconnect();
     }
-    UpdateMsg();
     vTaskDelay(1000);
+    UpdateMsg();
     Serial.println("app_main Suspend");
     vTaskSuspend(app_main_task_handle);
   }
