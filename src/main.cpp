@@ -421,7 +421,7 @@ void UartRecvErrcb(void)
 
 void MyTimerCallback(TimerHandle_t xTimer)
 {
-  const TickType_t xNewPeriod = pdMS_TO_TICKS(60000);
+  const TickType_t xNewPeriod = pdMS_TO_TICKS(10000);
   xTimerChangePeriod(xTimer, xNewPeriod, 0);
   Serial.println("MyTimer callback:");
   UpdateMsg();
