@@ -11,7 +11,7 @@
 #include "main.hpp"
 
 QueueHandle_t queue;
-TaskHandle_t task;
+TaskHandle_t app_main_task_handle;
 TimerHandle_t MyTimer;
 SemaphoreHandle_t xSemaphore = NULL;
 
@@ -44,12 +44,18 @@ uint16_t crc16(uint8_t *data, uint8_t len, uint16_t *table)
   return crc;
 }
 
-void UART1_receiveTask(void *parameter)
+void app_main(void *parameter)
 {
-  char c;
-  while (1)
+  for (;;)
   {
-    // xTaskResumeAll();
+    if (!client.connected())
+    {
+      reconnect();
+    }
+    UpdateMsg();
+    vTaskDelay(1000);
+    Serial.println("app_main Suspend");
+    vTaskSuspend(app_main_task_handle);
   }
 }
 
@@ -184,6 +190,8 @@ void setup()
     delay(500);
   } while (boot < 1000000000);
 
+  xTaskCreate(app_main, "app_main", 8192, NULL, 2, &app_main_task_handle);
+
   MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(1), pdTRUE, 0, MyTimerCallback);
   if (MyTimer == NULL)
   {
@@ -285,6 +293,7 @@ void loop()
       }
     }
   }
+  delay(10);
 }
 
 void UartRecvErrcb(void)
@@ -301,8 +310,9 @@ void MyTimerCallback(TimerHandle_t xTimer)
 {
   const TickType_t xNewPeriod = pdMS_TO_TICKS(60000);
   xTimerChangePeriod(xTimer, xNewPeriod, 0);
-  Serial.println("MyTimer callback:");
-  UpdateMsg();
+  Serial.print("MyTimer callback:");
+  Serial.println("app_main Resume");
+  vTaskResume(app_main_task_handle);
 }
 
 void UpdateMsg()
