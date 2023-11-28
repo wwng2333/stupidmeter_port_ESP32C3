@@ -24,7 +24,7 @@ NTPClient timeClient(ntpUDP, NTP_Server[0], 8 * 3600);
 unsigned long lastMsg = 0, boot = 0;
 char msg[MSG_BUFFER_SIZE];
 char target[MSG_BUFFER_SIZE];
-uint8_t NTP_Count = 0, WiFi_Count = 0;
+uint8_t NTP_Count = 0, CRC_Count = 0, WiFi_Count = 0;
 
 char UpdateinfoCMD[] = {0x55, 0x04, 0xBB, 0xAA};
 uart_rcv_state_enum uart_state = RCV_HEAD;
@@ -82,6 +82,7 @@ void UnpackData(void)
     }
     else
     {
+      CRC_Count++;
       Serial.println("unpack ok, crc check failed.");
       UartRecvErrcb();
     }
