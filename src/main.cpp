@@ -4,10 +4,11 @@
 #include <freertos/timers.h>
 #include <freertos/semphr.h>
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <MQTT.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <WiFiClientSecure.h>
+#include "driver/rtc_io.h"
 #include "main.hpp"
 
 QueueHandle_t queue;
@@ -16,7 +17,7 @@ TimerHandle_t MyTimer;
 SemaphoreHandle_t xSemaphore = NULL;
 
 WiFiClientSecure espClient;
-PubSubClient client(espClient);
+MQTTClient client;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_Server[0], 8 * 3600);
 
@@ -132,23 +133,20 @@ void setup_wifi()
 
 void reconnect()
 {
-  while (!client.connected())
+  Serial.print("checking wifi...");
+  while (WiFi.status() != WL_CONNECTED)
   {
-    String client_id = "ESP32C3-client-";
-    client_id += String(WiFi.macAddress());
-    Serial.printf("The client %s connects to the mqtt broker\n", client_id.c_str());
-    if (client.connect(client_id.c_str(), mqtt_username, mqtt_password))
-    {
-      Serial.println("Connected to MQTT broker.");
-    }
-    else
-    {
-      Serial.print("Failed to connect to MQTT broker, rc=");
-      Serial.print(client.state());
-      Serial.println(" Retrying in 5 seconds.");
-      delay(5000);
-    }
+    Serial.print(".");
+    delay(1000);
   }
+  Serial.print("\nconnecting...");
+  espClient.setInsecure();
+
+  while (!client.connect("ESP32C3", mqtt_username, mqtt_password))
+  {
+    Serial.print(".");
+  }
+  Serial.println("\nConnected to MQTT broker.");
 }
 
 void UART1SendCMD(void)
@@ -170,8 +168,9 @@ void setup()
 
   Serial.println(F("Intializing ..."));
   setup_wifi();
-  espClient.setCACert(ca_cert);
-  client.setServer(mqtt_broker, mqtt_port);
+  espClient.setInsecure();
+  client.begin(mqtt_broker, mqtt_port, espClient);
+  reconnect();
   timeClient.begin();
   timeClient.update();
   do
@@ -190,7 +189,7 @@ void setup()
     delay(500);
   } while (boot < 1000000000);
 
-  xTaskCreate(app_main, "app_main", 8192, NULL, 2, &app_main_task_handle);
+  xTaskCreate(app_main, "app_main", 10240, NULL, 2, &app_main_task_handle);
 
   MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(1), pdTRUE, 0, MyTimerCallback);
   if (MyTimer == NULL)
@@ -367,4 +366,16 @@ void PrintandUpdateMsg(char target[], char msg[])
 {
   Serial.println("Publish " + String(target) + " " + String(msg));
   client.publish(target, msg);
+  delay(10);
+}
+
+void NTP_UpdateRTC()
+{
+  timeClient.update();
+  struct tm tmstruct = {0};
+  time_t now = timeClient.getEpochTime();
+  localtime_r(&now, &tmstruct);
+  rtc.setTime(tmstruct.tm_hour, tmstruct.tm_min, tmstruct.tm_sec);
+  rtc.setDate(tmstruct.tm_mday, tmstruct.tm_mon + 1, tmstruct.tm_year + 1900);
+  delay(1000);
 }
