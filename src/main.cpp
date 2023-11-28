@@ -330,9 +330,9 @@ void UpdateMsg()
   GenerateMsg("%d", NTP_Count, "NTP");
   GenerateMsg("%d", WiFi.RSSI(), "RSSI");
 
-  GenerateMsg("%.3f", uart_data.mAh, "mAh");
-  GenerateMsg("%.3f", uart_data.mWh, "mWh");
-  GenerateMsg("%.3f", uart_data.MCU_VCC, "MCU_VCC");
+  GenerateFloatMsg("%.3f", uart_data.mAh, "mAh");
+  GenerateFloatMsg("%.3f", uart_data.mWh, "mWh");
+  GenerateFloatMsg("%.3f", uart_data.MCU_VCC, "MCU_VCC");
   GenerateQueueData(uart_data.voltage, "voltage");
   GenerateQueueData(uart_data.current, "current");
   GenerateQueueData(uart_data.power, "power");
@@ -362,20 +362,16 @@ void GenerateMsg(const char *fmt, uint32_t data, const char *codename)
   PrintandUpdateMsg(target, msg);
 }
 
+void GenerateFloatMsg(const char *fmt, float data, const char *codename)
+{
+  snprintf(msg, MSG_BUFFER_SIZE, fmt, data);
+  snprintf(target, MSG_BUFFER_SIZE, "Crazy/%s/%s", codename, BOARD_NAME);
+  PrintandUpdateMsg(target, msg);
+}
+
 void PrintandUpdateMsg(char target[], char msg[])
 {
   Serial.println("Publish " + String(target) + " " + String(msg));
   client.publish(target, msg);
   delay(10);
-}
-
-void NTP_UpdateRTC()
-{
-  timeClient.update();
-  struct tm tmstruct = {0};
-  time_t now = timeClient.getEpochTime();
-  localtime_r(&now, &tmstruct);
-  rtc.setTime(tmstruct.tm_hour, tmstruct.tm_min, tmstruct.tm_sec);
-  rtc.setDate(tmstruct.tm_mday, tmstruct.tm_mon + 1, tmstruct.tm_year + 1900);
-  delay(1000);
 }
