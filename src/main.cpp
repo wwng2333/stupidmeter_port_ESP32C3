@@ -302,6 +302,7 @@ void UartRecvErrcb(void)
   uart_state = RCV_HEAD;
   uart_rcv_count = 0;
   uart_rcv_len = 0;
+  CRC_Count = 0;
   Serial.println("failed on recv, request new:");
   UART1SendCMD();
 }
