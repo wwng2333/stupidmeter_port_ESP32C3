@@ -329,6 +329,7 @@ void UpdateMsg()
   GenerateMsg("%lu", boot, "Boot");
   GenerateMsg("%d", WiFi_Count, "WiFi");
   GenerateMsg("%d", NTP_Count, "NTP");
+  GenerateMsg("%d", CRC_Count, "CRC");
   GenerateMsg("%d", WiFi.RSSI(), "RSSI");
 
   GenerateMsg("%lu", uart_data.osTickCount, "osTickCount");
