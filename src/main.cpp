@@ -8,7 +8,8 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <WiFiClientSecure.h>
-#include "driver/rtc_io.h"
+//#include "driver/rtc_io.h"
+#include "driver/temp_sensor.h"
 #include "main.hpp"
 
 QueueHandle_t queue;
