@@ -227,19 +227,17 @@ void loop()
       if (temp == HEAD && uart_rcv_count == 0)
       {
         Serial.print("RCV_HEAD...");
-        uart_rcv_buf[uart_rcv_count] = temp;
+        uart_rcv_buf[uart_rcv_count++] = temp;
         uart_state = RCV_LEN;
-        uart_rcv_count++;
       }
       break;
     case RCV_LEN:
       Serial.print("RCV_LEN...");
       if (temp <= UART_BUF_LEN)
       {
-        uart_rcv_buf[uart_rcv_count] = temp;
+        uart_rcv_buf[uart_rcv_count++] = temp;
         uart_rcv_len = temp - 2;
         uart_state = RCV_CMD;
-        uart_rcv_count++;
       }
       else
       {
@@ -251,11 +249,10 @@ void loop()
       if (GET_DATA_ACK == temp)
       {
         Serial.println("RCV_CMD ok");
-        uart_rcv_buf[uart_rcv_count] = temp;
+        uart_rcv_buf[uart_rcv_count++] = temp;
         uart_rcv_len--;
         uart_cmd_type = (cmd_type_enum)temp;
         uart_state = RCV_DATA;
-        uart_rcv_count++;
       }
       else
       {
