@@ -331,6 +331,7 @@ void UpdateMsg()
   GenerateMsg("%d", NTP_Count, "NTP");
   GenerateMsg("%d", WiFi.RSSI(), "RSSI");
 
+  GenerateMsg("%lu", osTickCount, "osTickCount");
   GenerateFloatMsg("%.3f", uart_data.mAh, "mAh");
   GenerateFloatMsg("%.3f", uart_data.mWh, "mWh");
   GenerateFloatMsg("%.3f", uart_data.MCU_VCC, "MCU_VCC");
