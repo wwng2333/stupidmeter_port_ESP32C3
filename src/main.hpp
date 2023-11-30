@@ -93,5 +93,6 @@ void GenerateMsg(const char *fmt, uint32_t data, const char *codename);
 void GenerateQueueData(sensor_data_struct data, const char *codename);
 void GenerateFloatMsg(const char *fmt, float data, const char *codename);
 void PrintandUpdateMsg(char target[], char msg[]);
+float ESP32C3_TempSensorRead(void);
 
 #endif

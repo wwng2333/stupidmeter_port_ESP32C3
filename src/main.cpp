@@ -347,6 +347,11 @@ void UpdateMsg()
   GenerateFloatMsg("%.3f", uart_data.mAh, "mAh");
   GenerateFloatMsg("%.3f", uart_data.mWh, "mWh");
   GenerateFloatMsg("%.3f", uart_data.MCU_VCC, "MCU_VCC");
+
+  snprintf(msg, MSG_BUFFER_SIZE, "  %.2f", ESP32C3_TempSensorRead());
+  snprintf(target, MSG_BUFFER_SIZE, "Crazy/Temp/%s", BOARD_NAME);
+  PrintandUpdateMsg(target, msg);
+
   GenerateQueueData(uart_data.voltage, "voltage");
   GenerateQueueData(uart_data.current, "current");
   GenerateQueueData(uart_data.power, "power");
@@ -388,4 +393,11 @@ void PrintandUpdateMsg(char target[], char msg[])
   Serial.println("Publish " + String(target) + " " + String(msg));
   client.publish(target, msg);
   delay(10);
+}
+
+float ESP32C3_TempSensorRead(void)
+{
+  float tsens_out;
+  temp_sensor_read_celsius(&tsens_out);
+  return tsens_out;
 }
