@@ -156,70 +156,6 @@ void UART1SendCMD(void)
   Serial1.write(UpdateinfoCMD, sizeof(UpdateinfoCMD));
 }
 
-void setup()
-{
-  Serial.begin(115200);
-  Serial.println("S0:BOOT");
-
-  queue = xQueueCreate(10, sizeof(char));
-  xSemaphore = xSemaphoreCreateBinary();
-  // xTaskCreate(UART1_receiveTask, "receiveTask", 1024, NULL, 1, NULL);
-
-  Serial1.begin(9600, SERIAL_8N1, 2, 3);
-
-  Serial.println(F("Intializing ..."));
-  setup_wifi();
-  espClient.setInsecure();
-  client.begin(mqtt_broker, mqtt_port, espClient);
-  reconnect();
-  timeClient.begin();
-  timeClient.update();
-  do
-  {
-    if (NTP_Count > sizeof(NTP_Server))
-    {
-      NTP_Count = 0;
-      ESP.deepSleep(60e6);
-    }
-    Serial.print("Updating time @ " + String(NTP_Server[NTP_Count]) + "=>");
-    timeClient.setPoolServerName(NTP_Server[NTP_Count]);
-    timeClient.update();
-    boot = timeClient.getEpochTime();
-    Serial.println(timeClient.getFormattedTime());
-    NTP_Count++;
-    delay(500);
-  } while (boot < 1000000000);
-
-  xTaskCreate(app_main, "app_main", 10240, NULL, 2, &app_main_task_handle);
-  xTaskCreate(uart_recv, "uart_recv", 2048, NULL, 1, &uart_recv_task_handle);
-
-  MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(1), pdTRUE, 0, MyTimerCallback);
-  if (MyTimer == NULL)
-  {
-    Serial.println("MyTimer create failed.");
-  }
-  else
-  {
-    if (xTimerStart(MyTimer, 0) != pdPASS)
-    {
-      Serial.println("MyTimer start failed.");
-    }
-    else
-    {
-      Serial.println("MyTimer started!");
-    }
-  }
-  if (!client.connected())
-  {
-    reconnect();
-  }
-}
-
-void loop()
-{
-  ;
-}
-
 void uart_recv(void *parameter)
 {
   for (;;)
@@ -296,6 +232,70 @@ void uart_recv(void *parameter)
     }
     delay(10);
   }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+  Serial.println("S0:BOOT");
+
+  queue = xQueueCreate(10, sizeof(char));
+  xSemaphore = xSemaphoreCreateBinary();
+  // xTaskCreate(UART1_receiveTask, "receiveTask", 1024, NULL, 1, NULL);
+
+  Serial1.begin(9600, SERIAL_8N1, 2, 3);
+
+  Serial.println(F("Intializing ..."));
+  setup_wifi();
+  espClient.setInsecure();
+  client.begin(mqtt_broker, mqtt_port, espClient);
+  reconnect();
+  timeClient.begin();
+  timeClient.update();
+  do
+  {
+    if (NTP_Count > sizeof(NTP_Server))
+    {
+      NTP_Count = 0;
+      ESP.deepSleep(60e6);
+    }
+    Serial.print("Updating time @ " + String(NTP_Server[NTP_Count]) + "=>");
+    timeClient.setPoolServerName(NTP_Server[NTP_Count]);
+    timeClient.update();
+    boot = timeClient.getEpochTime();
+    Serial.println(timeClient.getFormattedTime());
+    NTP_Count++;
+    delay(500);
+  } while (boot < 1000000000);
+
+  xTaskCreate(app_main, "app_main", 10240, NULL, 2, &app_main_task_handle);
+  xTaskCreate(uart_recv, "uart_recv", 2048, NULL, 1, &uart_recv_task_handle);
+
+  MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(1), pdTRUE, 0, MyTimerCallback);
+  if (MyTimer == NULL)
+  {
+    Serial.println("MyTimer create failed.");
+  }
+  else
+  {
+    if (xTimerStart(MyTimer, 0) != pdPASS)
+    {
+      Serial.println("MyTimer start failed.");
+    }
+    else
+    {
+      Serial.println("MyTimer started!");
+    }
+  }
+  if (!client.connected())
+  {
+    reconnect();
+  }
+}
+
+void loop()
+{
+  ;
 }
 
 void UartRecvErrcb(void)
