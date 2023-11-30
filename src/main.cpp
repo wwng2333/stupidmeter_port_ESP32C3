@@ -220,17 +220,20 @@ void loop()
   {
     char ch = Serial1.read();
     uint8_t temp = ch;
-    if (uart_state == RCV_HEAD && temp == HEAD && uart_rcv_count == 0)
+
+    switch (uart_state)
     {
-      Serial.print("RCV_HEAD...");
-      uart_rcv_buf[uart_rcv_count] = temp;
-      uart_state = RCV_LEN;
-      uart_rcv_count++;
-    }
-    else if (uart_state == RCV_LEN)
-    {
+    case RCV_HEAD:
+      if (temp == HEAD && uart_rcv_count == 0)
+      {
+        Serial.print("RCV_HEAD...");
+        uart_rcv_buf[uart_rcv_count] = temp;
+        uart_state = RCV_LEN;
+        uart_rcv_count++;
+      }
+      break;
+    case RCV_LEN:
       Serial.print("RCV_LEN...");
-      /* 确认接收长度是否小于接收缓冲区,如果否重置接收流程 */
       if (temp <= UART_BUF_LEN)
       {
         uart_rcv_buf[uart_rcv_count] = temp;
@@ -241,13 +244,11 @@ void loop()
       else
       {
         Serial.println("err @ RCV_LEN");
-        // memset(uart_rcv_buf, 0, SIZE(uart_rcv_buf));
         UartRecvErrcb();
       }
-    }
-    else if (uart_state == RCV_CMD)
-    {
-      if (GET_DATA_ACK == temp) // 判断发来的数据包类型
+      break;
+    case RCV_CMD:
+      if (GET_DATA_ACK == temp)
       {
         Serial.println("RCV_CMD ok");
         uart_rcv_buf[uart_rcv_count] = temp;
@@ -259,38 +260,33 @@ void loop()
       else
       {
         Serial.println("RCV_CMD failed!");
-        /* 非法指令,复位并重新接收 */
         UartRecvErrcb();
       }
-    }
-    else if (uart_state == RCV_DATA)
-    {
-      /* 没到最后一个数据,继续接收 */
+      break;
+    case RCV_DATA:
       if (uart_rcv_len != 1)
       {
         uart_rcv_len--;
         uart_rcv_buf[uart_rcv_count++] = temp;
       }
-      /* 准备接收最后一个数据 */
-      else
+      else if (uart_rcv_len == 1)
       {
-        /* 确认是否为最后一个数据 */
-        if (uart_rcv_len == 1)
+        if (temp == TAIL)
         {
-          /* 确认最后一个数据是否为帧尾 */
-          if (temp == TAIL)
-          {
-            uart_rcv_buf[uart_rcv_count++] = temp;
-            Serial.printf("S1:Recv %d bytes ok!\r\n", uart_rcv_count);
-            UnpackData();
-          }
-          else
-          {
-            Serial.println("RCV_DATA failed!");
-            UartRecvErrcb();
-          }
+          uart_rcv_buf[uart_rcv_count++] = temp;
+          Serial.printf("S1:Recv %d bytes ok!\r\n", uart_rcv_count);
+          UnpackData();
+        }
+        else
+        {
+          Serial.println("RCV_DATA failed!");
+          UartRecvErrcb();
         }
       }
+      break;
+    default:
+      Serial.println("Invalid state!");
+      break;
     }
   }
   delay(10);
