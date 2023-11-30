@@ -4,7 +4,7 @@
 #include <freertos/timers.h>
 #include <freertos/semphr.h>
 #include <WiFi.h>
-mqtt_server.h
+#include <MQTT.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <WiFiClientSecure.h>
