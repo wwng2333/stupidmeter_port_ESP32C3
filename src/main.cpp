@@ -12,7 +12,7 @@
 #include "main.hpp"
 
 QueueHandle_t queue;
-TaskHandle_t app_main_task_handle;
+TaskHandle_t app_main_task_handle, uart_recv_task_handle;
 TimerHandle_t MyTimer;
 SemaphoreHandle_t xSemaphore = NULL;
 
@@ -191,6 +191,7 @@ void setup()
   } while (boot < 1000000000);
 
   xTaskCreate(app_main, "app_main", 10240, NULL, 2, &app_main_task_handle);
+  xTaskCreate(uart_recv, "uart_recv", 2048, NULL, 1, &uart_recv_task_handle);
 
   MyTimer = xTimerCreate("MyTimer", pdMS_TO_TICKS(1), pdTRUE, 0, MyTimerCallback);
   if (MyTimer == NULL)
@@ -216,77 +217,85 @@ void setup()
 
 void loop()
 {
-  if (Serial1.available())
-  {
-    char ch = Serial1.read();
-    uint8_t temp = ch;
+  ;
+}
 
-    switch (uart_state)
+void uart_recv(void *parameter)
+{
+  for (;;)
+  {
+    if (Serial1.available())
     {
-    case RCV_HEAD:
-      if (temp == HEAD && uart_rcv_count == 0)
+      char ch = Serial1.read();
+      uint8_t temp = ch;
+
+      switch (uart_state)
       {
-        Serial.print("RCV_HEAD...");
-        uart_rcv_buf[uart_rcv_count++] = temp;
-        uart_state = RCV_LEN;
-      }
-      break;
-    case RCV_LEN:
-      Serial.print("RCV_LEN...");
-      if (temp <= UART_BUF_LEN)
-      {
-        uart_rcv_buf[uart_rcv_count++] = temp;
-        uart_rcv_len = temp - 2;
-        uart_state = RCV_CMD;
-      }
-      else
-      {
-        Serial.println("err @ RCV_LEN");
-        UartRecvErrcb();
-      }
-      break;
-    case RCV_CMD:
-      if (GET_DATA_ACK == temp)
-      {
-        Serial.println("RCV_CMD ok");
-        uart_rcv_buf[uart_rcv_count++] = temp;
-        uart_rcv_len--;
-        uart_cmd_type = (cmd_type_enum)temp;
-        uart_state = RCV_DATA;
-      }
-      else
-      {
-        Serial.println("RCV_CMD failed!");
-        UartRecvErrcb();
-      }
-      break;
-    case RCV_DATA:
-      if (uart_rcv_len != 1)
-      {
-        uart_rcv_len--;
-        uart_rcv_buf[uart_rcv_count++] = temp;
-      }
-      else if (uart_rcv_len == 1)
-      {
-        if (temp == TAIL)
+      case RCV_HEAD:
+        if (temp == HEAD && uart_rcv_count == 0)
+        {
+          Serial.print("RCV_HEAD...");
+          uart_rcv_buf[uart_rcv_count++] = temp;
+          uart_state = RCV_LEN;
+        }
+        break;
+      case RCV_LEN:
+        Serial.print("RCV_LEN...");
+        if (temp <= UART_BUF_LEN)
         {
           uart_rcv_buf[uart_rcv_count++] = temp;
-          Serial.printf("S1:Recv %d bytes ok!\r\n", uart_rcv_count);
-          UnpackData();
+          uart_rcv_len = temp - 2;
+          uart_state = RCV_CMD;
         }
         else
         {
-          Serial.println("RCV_DATA failed!");
+          Serial.println("err @ RCV_LEN");
           UartRecvErrcb();
         }
+        break;
+      case RCV_CMD:
+        if (GET_DATA_ACK == temp)
+        {
+          Serial.println("RCV_CMD ok");
+          uart_rcv_buf[uart_rcv_count++] = temp;
+          uart_rcv_len--;
+          uart_cmd_type = (cmd_type_enum)temp;
+          uart_state = RCV_DATA;
+        }
+        else
+        {
+          Serial.println("RCV_CMD failed!");
+          UartRecvErrcb();
+        }
+        break;
+      case RCV_DATA:
+        if (uart_rcv_len != 1)
+        {
+          uart_rcv_len--;
+          uart_rcv_buf[uart_rcv_count++] = temp;
+        }
+        else if (uart_rcv_len == 1)
+        {
+          if (temp == TAIL)
+          {
+            uart_rcv_buf[uart_rcv_count++] = temp;
+            Serial.printf("S1:Recv %d bytes ok!\r\n", uart_rcv_count);
+            UnpackData();
+          }
+          else
+          {
+            Serial.println("RCV_DATA failed!");
+            UartRecvErrcb();
+          }
+        }
+        break;
+      default:
+        Serial.println("Invalid state!");
+        break;
       }
-      break;
-    default:
-      Serial.println("Invalid state!");
-      break;
     }
+    delay(10);
   }
-  delay(10);
 }
 
 void UartRecvErrcb(void)
