@@ -8,7 +8,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <WiFiClientSecure.h>
-//#include "driver/rtc_io.h"
+// #include "driver/rtc_io.h"
 #include "driver/temp_sensor.h"
 #include "main.hpp"
 
@@ -239,6 +239,13 @@ void setup()
 {
   Serial.begin(115200);
   Serial.println("S0:BOOT");
+
+  temp_sensor_config_t temp_sensor = {
+      .dac_offset = TSENS_DAC_L2,
+      .clk_div = 6,
+  };
+  temp_sensor_set_config(temp_sensor);
+  temp_sensor_start();
 
   queue = xQueueCreate(10, sizeof(char));
   xSemaphore = xSemaphoreCreateBinary();
